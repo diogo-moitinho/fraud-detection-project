@@ -6,10 +6,10 @@ estatística -> features -> otimização -> treino -> submissão.
 import logging
 import sys
 import pandas as pd
-from config import TRAIN_PATH, TEST_PATH
-from statistical_test import aplicar_testes
-from feature_engineer import preparar_dados
-from model import otimizar, treinar
+from fraud_detection.config import TRAIN_PATH, TEST_PATH
+from fraud_detection.statistical_test import aplicar_testes
+from fraud_detection.feature_engineer import preparar_dados
+from fraud_detection.model import otimizar, treinar
 
 logger = logging.getLogger(__name__)
 

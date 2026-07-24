@@ -4,7 +4,7 @@
 import pandas as pd
 import numpy as np
 
-from config import TARGET_COLUMN
+from fraud_detection.config import TARGET_COLUMN
 
 
 

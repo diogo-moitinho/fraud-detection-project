@@ -16,7 +16,7 @@ import lightgbm as lgb
 from sklearn.model_selection import StratifiedKFold
 from sklearn.metrics import balanced_accuracy_score, classification_report
 
-from config import RANDOM_SEED, TARGET_COLUMN, N_ESTAMATORS
+from fraud_detection.config import RANDOM_SEED, TARGET_COLUMN, N_ESTAMATORS
 
 logger = logging.getLogger(__name__)
 

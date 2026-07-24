@@ -55,25 +55,20 @@ def _gerar_texto_estatistico(df: pd.DataFrame, coluna: str) -> str:
     )
 
 
-def grafico_frequencia_absoluta(df: pd.DataFrame, target: str, cor = _obter_cor_aleatoria) -> go.Figure:
+def grafico_frequencia_absoluta(df: pd.DataFrame, target: str) -> go.Figure:
     tabela = df.groupby(target, as_index=False).size()
-
     fig = px.bar(
         tabela,
         x=target,
         y='size',
-        color_discrete_sequence=[cor],
         title=f"GRÁFICO FREQUÊNCIA DA VARIÁVEL: {target.upper()}"
     )
-
-    # Centralizando o título (o Plotly por padrão alinha à esquerda)
     fig.update_layout(title_x=0.5)
 
     return fig
 
 
 def grafico_frequencia_percentual(df: pd.DataFrame, target: str, cor=None) -> go.Figure:
-    # CORREÇÃO: Se nenhuma cor for passada, sorteia uma cor na hora da execução
     if cor is None:
         cor = _obter_cor_aleatoria()
         
