@@ -1,468 +1,347 @@
 """
-    Funções com o objetivo de criar gráficos usando a biblioteca PLOTLY.
+Visualization module using SEABORN and MATPLOTLIB.
+Optimized for large datasets and customized visual storytelling.
 """
 import pandas as pd
 import random
 import numpy as np
-
-import plotly.express as px
-import plotly.figure_factory as ff
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
-
-from scipy.stats import gaussian_kde, probplot
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import probplot
 from scipy import stats
 
 
-PALETA = px.colors.qualitative.Prism
+sns.set_theme(style="whitegrid", palette="muted")
 
 
-def _obter_cor_aleatoria() -> str:
-    return random.choice(PALETA)
+def _get_random_color() -> str:
+    """Returns a random hex color from a standard professional palette."""
+    palette = sns.color_palette("tab10").as_hex()
+    return random.choice(palette)
 
 
-def _gerar_texto_estatistico(df: pd.DataFrame, coluna: str) -> str:
-    dados = df[coluna]
+def _get_statistical_summary_text(df: pd.DataFrame, feature: str) -> str:
+    """Generates the statistical summary string for the lateral text box."""
+    data = df[feature].dropna()
         
-    media = dados.mean()
-    desvio = dados.std()
+    mean_val = data.mean()
+    std_dev = data.std()
     
-    # Cálculo dos limites de Outlier (Regra do IQR - Intervalo Interquartil)
-    q1 = dados.quantile(0.25)
-    q3 = dados.quantile(0.75)
+    q1 = data.quantile(0.25)
+    q3 = data.quantile(0.75)
     iqr = q3 - q1
-    lim_inf = q1 - (1.5 * iqr)
-    lim_sup = q3 + (1.5 * iqr)
+    lower_bound = q1 - (1.5 * iqr)
+    upper_bound = q3 + (1.5 * iqr)
+    total_outliers_upper = (data > upper_bound).sum()
+    total_outliers_lower = (data < lower_bound).sum()
     
-    nulos = dados.isna().sum()
-    mediana = dados.median()
-    minimo = dados.min()
-    maximo = dados.max()
-    unicos = dados.nunique()
+    null_count = df[feature].isna().sum()
+    median_val = data.median()
+    min_val = data.min()
+    max_val = data.max()
+    unique_vals = data.nunique()
+    percentage_of_outliers = (total_outliers_lower + total_outliers_upper) / data.count() * 100
 
     return (
-    f"<b>{coluna.upper()}</b><br><br>"
-    f"<b>Estatística Descritiva</b><br>"
-    f"Média: {media:.2f}<br>"
-    f"Mediana: {mediana:.2f}<br>"
-    f"Desv. Padrão: {desvio:.2f}<br><br>"
-    f"<b>Análise de Limites (IQR)</b><br>"
-    f"Lim. Superior: {lim_sup:.2f}<br>"
-    f"Lim. Inferior: {lim_inf:.2f}<br>"
-    f"Mín / Máx: {minimo:.2f} | {maximo:.2f}<br><br>"
-    f"Valores Nulos: {nulos} ({(nulos/len(dados))*100:.1f}%)<br>"
-    f"Valores Únicos: {unicos}"
+        f"{feature.upper()}\n\n"
+        f"--- Descriptive Statistics ---\n"
+        f"Mean: {mean_val:.2f}\n"
+        f"Median: {median_val:.2f}\n"
+        f"Std Dev: {std_dev:.2f}\n\n"
+        f"--- IQR Boundaries ---\n"
+        f"Upper Bound: {upper_bound:.2f}\n"
+        f"Lower Bound: {lower_bound:.2f}\n"
+        f"Min / Max: {min_val:.2f} | {max_val:.2f}\n\n"
+        f"--- Data Quality ---\n"
+        f"Null Values: {null_count} ({(null_count/len(df))*100:.1f}%)\n"
+        f"Unique Values: {unique_vals}\n"
+        f'Percentage of Outliers {round(percentage_of_outliers,2)}%' 
     )
 
 
-def grafico_frequencia_absoluta(df: pd.DataFrame, target: str) -> go.Figure:
-    tabela = df.groupby(target, as_index=False).size()
-    fig = px.bar(
-        tabela,
-        x=target,
-        y='size',
-        title=f"GRÁFICO FREQUÊNCIA DA VARIÁVEL: {target.upper()}"
-    )
-    fig.update_layout(title_x=0.5)
-
-    return fig
-
-
-def grafico_frequencia_percentual(df: pd.DataFrame, target: str, cor=None) -> go.Figure:
-    if cor is None:
-        cor = _obter_cor_aleatoria()
+def plot_boxplot(df: pd.DataFrame, feature: str, ax=None, orientation='h', hue=None, color_map=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
         
-    tabela = (df[target].value_counts(normalize=True) * 100).reset_index() 
+    x_val = feature if orientation == 'h' else None
+    y_val = feature if orientation == 'v' else None
     
-    coluna_valores = [col for col in tabela.columns if col != target][0]
-    
-    fig = px.bar(
-        tabela,
-        x=target,
-        y=coluna_valores,
-        color_discrete_sequence=[cor],
-        title=f"GRÁFICO FREQUÊNCIA (%) DA VARIÁVEL: {target.upper()}"
-    )
-    
-    fig.update_traces(
-        texttemplate='%{y:.1f}%', 
-        textposition='outside'
-    )
-    
-    fig.update_layout(
-        title_x=0.5,
-        yaxis_title="Porcentagem (%)"
-    )
-        
-    return fig
-
-
-def grafico_frequencia_percentual_alvo(df: pd.DataFrame, target: str, hue: str = None, mapa_cores: dict = None) -> go.Figure:
-    
-    colunas = [target] if hue is None else [target, hue]
-    df_plot = df[colunas].dropna().copy()
-    
-    # Força conversão para string para evitar eixo contínuo
-    df_plot[target] = df_plot[target].astype(str)
-    
-    if mapa_cores:
-        mapa_cores = {str(k): v for k, v in mapa_cores.items()}
-        
-    if hue:
-        df_plot[hue] = df_plot[hue].astype(str)
-        
-        # MATEMÁTICA CORRIGIDA (OPÇÃO 1): 
-        # Agrupa primeiro pelo Eixo X (target) e vê a proporção das cores (hue)
-        tabela = (df_plot.groupby(target)[hue]
-                         .value_counts(normalize=True)
-                         .mul(100)
-                         .rename('percentual')
-                         .reset_index())
-        
-        coluna_cor = hue               # A cor contina sendo o Sexo (Logo, o seu mapa funciona!)
-        barmode_cfg = 'group'          
-        titulo = f"PERFIL DE {hue.upper()} DENTRO DA VARIÁVEL {target.upper()}"
-        
+    if hue is None:
+        plot_color = _get_random_color()
+        sns.boxplot(data=df, x=x_val, y=y_val, ax=ax, color=plot_color)
     else:
-        tabela = (df_plot[target].value_counts(normalize=True) * 100).reset_index()
-        tabela.columns = [target, 'percentual'] 
-        coluna_cor = target            
-        barmode_cfg = 'relative'       
-        titulo = f"FREQUÊNCIA (%) DA VARIÁVEL: {target.upper()}"
-
-    # Montagem do gráfico
-    seq_cores = None if mapa_cores else [px.colors.qualitative.Set1[0]]
-
-    fig = px.bar(
-        tabela,
-        x=target,                      # Eixo X = Survived (0, 1)
-        y='percentual',
-        color=coluna_cor,              # Cor = Sex (male, female)
-        barmode=barmode_cfg,
-        color_discrete_map=mapa_cores, # Seu dicionário azul/rosa vai brilhar aqui
-        color_discrete_sequence=seq_cores,
-        title=titulo
-    )
+        palette_choice = color_map if color_map else "Set2"
+        sns.boxplot(data=df, x=x_val, y=y_val, hue=hue, ax=ax, palette=palette_choice)
     
-    fig.update_traces(
-        texttemplate='%{y:.1f}%', 
-        textposition='outside'
-    )
-    
-    fig.update_layout(
-        title_x=0.5,
-        yaxis_title="Porcentagem (%)",
-        xaxis_title=target.upper(),
-        legend_title=coluna_cor.upper() if hue else None
-    )
-        
-    return fig
-
-
-def grafico_frequencia_percentual_opcao2(df: pd.DataFrame, target: str, hue: str = None, mapa_cores: dict = None) -> go.Figure:
-    
-    colunas = [target] if hue is None else [target, hue]
-    df_plot = df[colunas].dropna().copy()
-    
-    df_plot[target] = df_plot[target].astype(str)
-    
-    if mapa_cores:
-        mapa_cores = {str(k): v for k, v in mapa_cores.items()}
-        
-    if hue:
-        df_plot[hue] = df_plot[hue].astype(str)
-        
-        # MATEMÁTICA OPÇÃO 2: 
-        # Agrupa pelo 'hue' (Eixo X) e calcula a proporção do 'target' (Cores)
-        tabela = (df_plot.groupby(hue)[target]
-                         .value_counts(normalize=True)
-                         .mul(100)
-                         .rename('percentual')
-                         .reset_index())
-        
-        # INVERSÃO VISUAL: O Eixo X agora é o 'hue' e a cor é o 'target'
-        eixo_x = hue
-        coluna_cor = target               
-        barmode_cfg = 'group'          
-        titulo = f"TAXA DE {target.upper()} POR {hue.upper()}"
-        
-    else:
-        tabela = (df_plot[target].value_counts(normalize=True) * 100).reset_index()
-        tabela.columns = [target, 'percentual'] 
-        eixo_x = target
-        coluna_cor = target            
-        barmode_cfg = 'relative'       
-        titulo = f"FREQUÊNCIA (%) DA VARIÁVEL: {target.upper()}"
-
-    seq_cores = None if mapa_cores else [px.colors.qualitative.Set1[0]]
-
-    fig = px.bar(
-        tabela,
-        x=eixo_x,                      # Eixo X = Sex (male, female)
-        y='percentual',
-        color=coluna_cor,              # Cor = Survived (0, 1)
-        barmode=barmode_cfg,
-        color_discrete_map=mapa_cores, # O dicionário agora precisa mapear 0 e 1!
-        color_discrete_sequence=seq_cores,
-        title=titulo
-    )
-    
-    fig.update_traces(
-        texttemplate='%{y:.1f}%', 
-        textposition='outside'
-    )
-    
-    fig.update_layout(
-        title_x=0.5,
-        yaxis_title="Porcentagem (%)",
-        xaxis_title=eixo_x.upper(),
-        legend_title=coluna_cor.upper() if hue else None
-    )
-        
-    return fig
-
-
-def grafico_distribuicao_zscore(df: pd.DataFrame, target: str, cor = _obter_cor_aleatoria) -> go.Figure:
-    tabela = df.copy()
-    tabela[f'{target}_zscore'] = stats.zscore(tabela[target], nan_policy='omit')
-
-    # Figure factory precisa de dados sem NaNs
-    dados_limpos = tabela[f'{target}_zscore'].dropna()
-
-    # ff.create_distplot é o equivalente ao sns.histplot(kde=True)
-    fig = ff.create_distplot(
-        [dados_limpos], 
-        group_labels=[target], 
-        colors=[cor],
-        show_hist=True, 
-        show_rug=False
-    )
-        
-    fig.update_layout(
-        title=f'DISTRIBUIÇÃO Z-SCORE DA VARIÁVEL: {target.upper()}',
-        title_x=0.5,
-        xaxis_title=f'{target} (Z-Score)',
-        yaxis_title='Densidade'
-    )
-    
-    return fig
-
-
-def grafico_distribuicao(df: pd.DataFrame, target: str, cor = _obter_cor_aleatoria) -> go.Figure:
-    dados_limpos = df[target].dropna()
-
-    fig = ff.create_distplot(
-        [dados_limpos], 
-        group_labels=[target], 
-        colors=[cor],
-        show_hist=True, 
-        show_rug=False
-    )
-        
-    fig.update_layout(
-        title=f'DISTRIBUIÇÃO DA VARIÁVEL: {target.upper()}',
-        title_x=0.5,
-        xaxis_title=f'{target}',
-        yaxis_title='Densidade'
-    )
-    
-    return fig
-
-
-def grafico_boxplot(df: pd.DataFrame, target: str, orientation='h', hue=None) -> go.Figure:
-    # No Plotly Express, a orientação é definida mapeando o 'target' para o eixo X ou Y
-    kwargs = {}
     if orientation == 'h':
-        kwargs['x'] = target
+        ax.set_xscale('symlog')
     else:
-        kwargs['y'] = target
+        ax.set_yscale('symlog')
         
-    if hue:
-        kwargs['color'] = hue
-
-    fig = px.box(
-        df,
-        **kwargs,
-        title=f'BOXPLOT: {target.upper()}',
-        color_discrete_sequence=PALETA # Permite usar toda a paleta se houver "hue"
-    )
-
-    fig.update_layout(title_x=0.5)
-
-    return fig
+    ax.set_title(f'BOXPLOT: {feature.upper()}', fontweight='bold')
+    return ax
 
 
-def grafico_qqplot(df: pd.DataFrame, target: str) -> go.Figure:
-    coluna = pd.to_numeric(df[target], errors='coerce')
+def plot_feature_density(df: pd.DataFrame, feature: str, ax=None, color=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+    plot_color = color if color else _get_random_color()
     
-    coluna = coluna.dropna()
+    # OTIMIZAÇÃO: Usa o numpy e o Matplotlib nativo com log=True
+    data = df[feature].dropna().to_numpy()
     
-    if coluna.empty:
-        fig = go.Figure()
-        fig.update_layout(title=f"QQ-Plot: {target.upper()} (Sem Dados Numéricos)")
-        return fig
-
-    (osm, osr), (slope, inter, _) = probplot(coluna, dist="norm")
-
-    # 5. Montagem do gráfico
-    fig = go.Figure()
-    fig.add_trace(go.Scatter(x=osm, y=osr, mode="markers", name="Amostra",
-                             marker=dict(color='red', size=5)))
+    ax.hist(data, bins=100, color=plot_color, edgecolor='black', linewidth=0.5, log=True)
     
-    fig.add_trace(go.Scatter(x=osm, y=slope * osm + inter, mode="lines", name="Normal",
-                             line=dict(color="#030101", width=2)))
-
-    fig.update_layout(title=f"QQ-Plot: {target.upper()}")
-    fig.update_layout(title_x=0.5)
-
-    return fig
+    ax.set_title(f'DISTRIBUTION (LOG): {feature.upper()}', fontweight='bold')
+    ax.set_xlabel(feature)
+    ax.set_ylabel('Frequency (Log)')
+    return ax
 
 
-# Mantemos a sua função auxiliar intacta, pois ela é brilhante para tratar os dados
-def _frame_numerico(df: pd.DataFrame, incluir=()):
+def plot_zscore_density(df: pd.DataFrame, feature: str, ax=None, color=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+    plot_color = color if color else _get_random_color()
+    
+    # OTIMIZAÇÃO: Z-score super rápido via numpy array
+    data = df[feature].dropna().to_numpy()
+    z_scores = stats.zscore(data)
+    
+    ax.hist(z_scores, bins=100, color=plot_color, edgecolor='black', linewidth=0.5, log=True)
+    
+    ax.set_title(f'Z-SCORE (LOG): {feature.upper()}', fontweight='bold')
+    ax.set_xlabel(f'{feature} (Z-Score)')
+    ax.set_ylabel('Frequency (Log)')
+    return ax
+
+
+def plot_qq_normality(df: pd.DataFrame, feature: str, ax=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+    data_clean = pd.to_numeric(df[feature], errors='coerce').dropna()
+    
+    if data_clean.empty:
+        ax.set_title(f"QQ-Plot: {feature.upper()} (No Numeric Data)")
+        return ax
+
+    # TRAVA DE SEGURANÇA: Se a base for absurdamente gigante, o QQ-Plot 
+    # usa internamente uma amostra máxima de 50 mil pontos para não explodir a RAM.
+    if len(data_clean) > 50000:
+        data_clean = data_clean.sample(50000, random_state=42)
+
+    (osm, osr), (slope, inter, _) = probplot(data_clean, dist="norm")
+    
+    # Ajustei o tamanho do ponto (s=2) para ficar mais limpo em bases grandes
+    ax.scatter(osm, osr, color='red', s=2, alpha=0.5, label='Sample')
+    ax.plot(osm, slope * osm + inter, color='black', linewidth=2, label='Theoretical Normal')
+    
+    ax.set_title(f"QQ-PLOT: {feature.upper()}", fontweight='bold')
+    ax.set_xlabel("Theoretical Quantiles")
+    ax.set_ylabel("Sample Values")
+    return ax
+
+
+def _convert_to_numeric(df: pd.DataFrame, include=()):
+    """Converts categorical variables to numeric mappings for correlation."""
     num = df.select_dtypes("number").copy()
     for c in df.columns:
         s = df[c]
         if isinstance(s.dtype, pd.CategoricalDtype):
-            if s.dtype.ordered or s.nunique(dropna=True) == 2:   # ordinal OU binário
+            if s.dtype.ordered or s.nunique(dropna=True) == 2:
                 num[c] = s.cat.codes.replace(-1, np.nan)
-    for c in incluir:                        # força qualquer coluna extra pedida
+    for c in include:
         if c not in num.columns:
             num[c] = pd.factorize(df[c])[0].astype(float)
             num.loc[df[c].isna(), c] = np.nan
     return num
 
 
-def grafico_correlacao(df: pd.DataFrame, incluir=()) -> go.Figure:
-    """
-    Gera um painel com Heatmaps de correlação Pearson (linear) e Spearman (monotônica).
-    """
-    # 1. Prepara os dados numéricos e codificados usando a função auxiliar
-    num = _frame_numerico(df, incluir=incluir)
+def plot_correlation_heatmaps(df: pd.DataFrame, include=()):
+    num = _convert_to_numeric(df, include=include)
     
-    # 2. Trava de segurança: precisa de pelo menos 2 colunas para calcular correlação
     if num.shape[1] < 2:
-        fig = go.Figure()
-        fig.update_layout(title="Correlação: Colunas numéricas insuficientes na base de dados.")
-        return fig
+        print("Insufficient numeric columns for correlation.")
+        return None
 
-    # 3. Cálculo matemático das matrizes de correlação
-    cols = num.columns.tolist()
-    cp = num.corr(method="pearson").values
-    cs = num.corr(method="spearman").values
+    cp = num.corr(method="pearson")
+    cs = num.corr(method="spearman")
 
-    # 4. Criação da estrutura de subplots
-    fig = make_subplots(
-        rows=1, cols=2,
-        subplot_titles=("Pearson (Correlação Linear)", "Spearman (Correlação Monotônica)"),
-        horizontal_spacing=0.15 # Espaço extra para os nomes das colunas não encavalarem
-    )
-
-    # 5. Adiciona os Heatmaps
-    for j, matriz_valores in enumerate([cp, cs], start=1):
-        fig.add_trace(
-            go.Heatmap(
-                z=matriz_valores, 
-                x=cols, 
-                y=cols, 
-                zmin=-1, zmax=1,
-                colorscale="RdBu_r", 
-                coloraxis="coloraxis",
-                texttemplate="%{z:.2f}", # Imprime os valores com 2 casas decimais nos quadrados
-                textfont_size=10,
-                hoverinfo="x+y+z"
-            ), 
-            row=1, col=j
-        )
-
-    # 6. Atualização do Layout Geral
-    fig.update_layout(
-        title_text="<b>Análise de Correlação das Variáveis</b>",
-        title_x=0.5,
-        height=600,
-        width=1200,
-        coloraxis=dict(colorscale="RdBu_r", cmin=-1, cmax=1),
-    )
+    fig, axes = plt.subplots(1, 2, figsize=(16, 7))
     
-    # Inverte o eixo Y para a diagonal principal (1.00) ficar de cima-esquerda para baixo-direita
-    fig.update_yaxes(autorange="reversed")
+    sns.heatmap(cp, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1, 
+                ax=axes[0], square=True, linewidths=.5, cbar_kws={"shrink": .8})
+    axes[0].set_title("Pearson (Linear Correlation)", fontweight='bold')
+    
+    sns.heatmap(cs, annot=True, fmt=".2f", cmap="RdBu_r", vmin=-1, vmax=1, 
+                ax=axes[1], square=True, linewidths=.5, cbar_kws={"shrink": .8})
+    axes[1].set_title("Spearman (Monotonic Correlation)", fontweight='bold')
+    
+    fig.suptitle("Variable Correlation Analysis", fontsize=16, fontweight='bold', y=1.02)
+    plt.tight_layout()
+    plt.show()
 
-    return fig
 
+def generate_quantitative_panel(df: pd.DataFrame, features: list, hue=None, color_map=None):
+    """Generates a complete panel (Z-Score, Density, Boxplot, QQ-Plot) for numeric features."""
+    for feature in features:
+        plot_color = _get_random_color()
+        summary_text = _get_statistical_summary_text(df, feature)
 
-def analise_variaveis_quantitativas(df: pd.DataFrame, lista_variaveis: list) -> go.Figure:
-    for coluna in lista_variaveis:
-        cor = _obter_cor_aleatoria()
-        texto_estatistico = _gerar_texto_estatistico(df, coluna)
-
-        fig = make_subplots(rows=2, cols=2,
-                            subplot_titles=("Histograma / Densidade", "Distribuição Detalhada", "Boxplot", "QQ-Plot"))
-
-        fig_zscore = grafico_distribuicao_zscore(df, target=coluna, cor=cor)
-        for trace in fig_zscore.data:
-            fig.add_trace(trace, row=1, col=1)
-            fig.update_xaxes(title_text=coluna, row=1, col=1)
-            fig.update_yaxes(title_text="Densidade", row=1, col=1)
-
-        fig_dist = grafico_distribuicao(df, target=coluna, cor=cor)
-        for trace in fig_dist.data:
-            fig.add_trace(trace, row=1, col=2)
-            fig.update_xaxes(title_text=coluna, row=1, col=2)
-            fig.update_yaxes(title_text="Frequência", row=1, col=2)
-
-        fig_box = grafico_boxplot(df, target=coluna)
-        for trace in fig_box.data:
-            fig.add_trace(trace, row=2, col=1)
-            fig.update_xaxes(title_text=coluna, row=2, col=1)
-
-        fig_qq = grafico_qqplot(df, target=coluna)
-        for trace in fig_qq.data:
-            fig.add_trace(trace, row=2, col=2)
-            fig.update_xaxes(title_text="Quantis Teóricos", row=2, col=2)
-            fig.update_yaxes(title_text="Valores da Amostra", row=2, col=2)
-
-        fig.update_layout(
-            title_text=f"Análise da Variável: {coluna.upper()}",
-            title_font_size=50,
-            title_x=0.5,
-            showlegend=False, 
-            height=700, 
-            width=1100,            # Aumentei um pouco a largura total
-            margin=dict(r=200)     # Adiciona margem direita para a caixa não sumir da tela
-        )
-
-        # Adicionando a Anotação Lateral (A Caixinha)
-        fig.add_annotation(
-            text=texto_estatistico,
-            xref="paper", yref="paper",
-            x=1.05, y=0.5,         # x=1.05 joga a caixa para fora do gráfico, à direita
-            xanchor="left", 
-            yanchor="middle",
-            align="left",
-            showarrow=False,       # Tira a setinha padrão de anotações
-            bordercolor="black",   # Borda preta igual da sua imagem
-            borderwidth=1,
-            bgcolor="white",       # Fundo branco
-            borderpad=10           # Espaço interno entre o texto e a borda
-        )
+        fig, axes = plt.subplots(2, 2, figsize=(14, 10))
         
-        fig.show()
+        # Univariate distributions use the single color
+        plot_zscore_density(df, feature=feature, ax=axes[0, 0], color=plot_color)
+        plot_feature_density(df, feature=feature, ax=axes[0, 1], color=plot_color)
+        
+        # Boxplot leverages hue and color map if provided to separate categories (e.g. Fraud vs Legitimate)
+        plot_boxplot(df, feature=feature, ax=axes[1, 0], hue=hue, color_map=color_map)
+        
+        plot_qq_normality(df, feature=feature, ax=axes[1, 1])
+        
+        fig.suptitle(f"Quantitative Analysis: {feature.upper()}", fontsize=20, fontweight='bold')
+        
+        plt.subplots_adjust(right=0.78, hspace=0.3, wspace=0.2)
+        
+        fig.text(0.80, 0.5, summary_text, fontsize=11, family='monospace', va='center',
+                 bbox=dict(boxstyle="round,pad=1", facecolor="white", edgecolor="black", linewidth=1.5))
+        
+        plt.show()
 
 
-def analise_variaveis_categoricas(df: pd.DataFrame, lista_variaveis: list, alvo = None) -> go.Figure:
-    for coluna in lista_variaveis:
-        cor = _obter_cor_aleatoria()
-        fig = make_subplots(rows=1, cols=2,
-                            subplot_titles=("Histograma / Densidade", "Distribuição Detalhada"))
+def _get_categorical_summary_text(df: pd.DataFrame, feature: str) -> str:
+    """Generates the statistical summary string for categorical features."""
+    data = df[feature]
+    total = len(data)
+    missing = data.isna().sum()
+    unique = data.nunique()
+    
+    top_cat = data.mode()[0] if not data.mode().empty else "N/A"
+    top_freq = data.value_counts().iloc[0] if not data.empty else 0
 
-        fig_barras = grafico_frequencia_percentual(df, coluna)
-        for trace in fig_barras.data:
-            fig.add_trace(trace, row=1, col=1)
-            fig.update_xaxes(title_text=coluna, row=1, col=1)
-            fig.update_yaxes(title_text="Frequência (%)", row=1, col=1)
+    return (
+        f"{feature.upper()}\n\n"
+        f"--- Overview ---\n"
+        f"Total Records: {total}\n"
+        f"Missing Values: {missing} ({(missing/total)*100:.1f}%)\n"
+        f"Unique Categories: {unique}\n\n"
+        f"--- Top Category ---\n"
+        f"Value: {top_cat}\n"
+        f"Count: {top_freq}\n"
+        f"Share: {(top_freq/total)*100:.1f}%\n"
+    )
 
-        fig_barras_alvo = grafico_frequencia_percentual_alvo(df, coluna)
-        for trace in fig_barras_alvo.data:
-            fig.add_trace(trace, row=1, col=1)
-            fig.update_xaxes(title_text=coluna, row=1, col=1)
-            fig.update_yaxes(title_text="Frequência (%)", row=1, col=1)
+
+def plot_category_by_target(df: pd.DataFrame, feature: str, target: str, ax=None, color_map=None):
+    """Plots absolute counts separated by the target variable using Log scale."""
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    palette_choice = color_map if color_map else "Set2"
+    
+    # Usando hue para separar as classes do alvo
+    sns.countplot(data=df, x=feature, hue=target, palette=palette_choice, ax=ax, edgecolor='black')
+
+    # Escala Logarítmica obrigatória, senão os 0.1% de fraudes ficarão invisíveis
+    ax.set_yscale('symlog')
+    
+    ax.set_title(f"COUNT BY TARGET (LOG): {feature.upper()}", fontweight='bold')
+    ax.set_ylabel("Count (Log Scale)")
+    ax.set_xlabel(feature)
+    
+    ax.tick_params(axis='x', rotation=90)
+    
+    return ax
+
+
+def plot_target_rate(df: pd.DataFrame, feature: str, target: str, ax=None, color=None):
+    """Calculates and plots the percentage of the target=1 within each category."""
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Matemática Ninja do Pandas: A média de uma coluna [0, 1] é exatamente a % de 1s.
+    rates = df.groupby(feature)[target].mean().mul(100).sort_values(ascending=False).reset_index()
+
+    plot_color = color if color else '#c0392b' # Vermelho escuro padrão para risco
+    sns.barplot(data=rates, x=feature, y=target, color=plot_color, ax=ax, edgecolor='black')
+
+    # Adicionando os rótulos de porcentagem em cima das barras
+    for p in ax.patches:
+        height = p.get_height()
+        if height > 0:
+            ax.annotate(f'{height:.2f}%', 
+                        (p.get_x() + p.get_width() / 2., height), 
+                        ha='center', va='bottom', fontsize=10, xytext=(0, 5), 
+                        textcoords='offset points')
+
+    ax.set_title(f"FRAUD RATE (%): {feature.upper()}", fontweight='bold')
+    ax.set_ylabel(f"{target.upper()} Rate (%)")
+    ax.set_xlabel(feature)
+    ax.tick_params(axis='x', rotation=90)
+    return ax
+
+
+def plot_relative_frequency(df: pd.DataFrame, feature: str, ax=None, color=None, color_map=None):
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 5))
+        
+    freq_df = (df[feature].value_counts(normalize=True) * 100).reset_index()
+    freq_df.columns = [feature, 'percentage']
+    
+    if color_map:
+        # Modern Seaborn requires hue when using a specific palette mapping
+        sns.barplot(data=freq_df, x=feature, y='percentage', hue=feature, palette=color_map, ax=ax, legend=False)
+    else:
+        plot_color = color if color else _get_random_color()
+        sns.barplot(data=freq_df, x=feature, y='percentage', color=plot_color, ax=ax)
+    
+    # Add percentage labels on top of the bars
+    for p in ax.patches:
+        height = p.get_height()
+        if height > 0:
+            ax.annotate(f'{height:.1f}%', 
+                        (p.get_x() + p.get_width() / 2., height), 
+                        ha='center', va='bottom', fontsize=10, xytext=(0, 5), 
+                        textcoords='offset points')
+        
+    ax.set_title(f"RELATIVE FREQUENCY: {feature.upper()}", fontweight='bold')
+    ax.set_ylabel("Percentage (%)")
+    ax.set_xlabel(feature)
+    ax.tick_params(axis='x', rotation=90)
+    return ax
+
+
+def generate_categorical_panel(df: pd.DataFrame, features: list, target=None, color_map=None):
+    """Generates a complete panel for categorical features, optionally crossing with a target."""
+    for feature in features:
+        summary_text = _get_categorical_summary_text(df, feature)
+
+        # Se o usuário mandou uma variável alvo (isFraud), gera o painel triplo
+        if target:
+            fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+            
+            plot_relative_frequency(df, feature=feature, ax=axes[0])
+            plot_category_by_target(df, feature=feature, target=target, ax=axes[1], color_map=color_map)
+            plot_target_rate(df, feature=feature, target=target, ax=axes[2])
+            
+            # Abre espaço extra na direita para a caixa de texto
+            plt.subplots_adjust(right=0.82, wspace=0.3)
+            
+        # Se não tem alvo, gera um painel duplo mais simples
+        else:
+            fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+            plot_relative_frequency(df, feature=feature, ax=axes[0])
+            sns.countplot(data=df, x=feature, ax=axes[1], color=_get_random_color(), edgecolor='black')
+            axes[1].set_title(f"ABSOLUTE COUNT: {feature.upper()}", fontweight='bold')
+            
+            plt.subplots_adjust(right=0.78, wspace=0.3)
+
+        fig.suptitle(f"Categorical Analysis: {feature.upper()}", fontsize=20, fontweight='bold', y=1.05)
+
+        # Caixa de texto padronizada
+        fig.text(0.84 if target else 0.80, 0.5, summary_text, fontsize=11, family='monospace', va='center',
+                 bbox=dict(boxstyle="round,pad=1", facecolor="white", edgecolor="black", linewidth=1.5))
+
+        plt.show()
