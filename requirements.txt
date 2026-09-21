@@ -1,6 +1,19 @@
+# Dependências do app Streamlit (streamlit_app.py).
+#
+# scikit-learn e xgboost estão presos às versões com que o artefato foi salvo.
+# Carregar um pipeline em versão diferente emite InconsistentVersionWarning e,
+# em alguns casos, altera o resultado — num app de decisão isso não serve.
+#
+# imbalanced-learn não aparece no código, mas o Pipeline salvo é o da imblearn:
+# sem ela o joblib.load falha na importação.
+#
+# Os notebooks usam mais coisas (polars, optuna, seaborn). Elas não entram aqui:
+# o app não as importa, e cada pacote a mais é uma chance a mais de o build falhar.
+
 streamlit>=1.40
 pandas>=2.0
 numpy>=1.26
+plotly>=5.20
 joblib>=1.3
 scikit-learn==1.7.2
 xgboost==3.2.0
