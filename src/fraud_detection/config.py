@@ -9,7 +9,7 @@ from __future__ import annotations
 # --------------------------------------------------------------------------- #
 # Paths and reproducibility
 # --------------------------------------------------------------------------- #
-DATA_PATH = '/data/PROJETOS/ALURA-FRAUDE/data/Fraud.csv'
+DATA_PATH = '/data/PROJETOS/GIT/ALURA-FRAUDE/data/Fraud.csv'
 MODEL_DIR = 'models'
 ARTIFACT_NAME = 'fraud_realtime_v1.joblib'
 
