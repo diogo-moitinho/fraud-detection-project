@@ -21,6 +21,7 @@ from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline as ImbPipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
+import numpy as np 
 
 from . import config as cfg
 
@@ -220,3 +221,44 @@ def feature_names(pipeline: ImbPipeline) -> list[str]:
     """Post-encoding column names, with the ColumnTransformer prefix stripped."""
     raw = pipeline.named_steps['preprocessor'].get_feature_names_out()
     return [name.split('__', 1)[-1] for name in raw]
+
+
+def criar_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.with_columns(
+        (pl.col("newbalanceOrig") + pl.col("amount") - pl.col("oldbalanceOrg"))
+            .round(2)
+            .alias("errorBalanceOrig"),
+        (pl.col("oldbalanceDest") + pl.col("amount") - pl.col("newbalanceDest"))
+            .round(2)
+            .alias("errorBalanceDest"),
+    )
+
+    df = df.with_columns(
+        ((pl.col("step") - 1) % 24).alias("hour_of_day"),
+        (((pl.col("step") - 1) // 24 % 30) + 1).alias("day_of_month"),
+        (((pl.col("step") - 1) // (24 * 30)) + 1).alias("month_period")
+    )
+    return df
+
+def dividir_cronologicamente(df: pd.DataFrame, seed=42):
+    n = len(df)
+    n_val = int(n * 0.2)
+    n_test = int(n * 0.2)
+    n_train = n - n_val - n_test
+
+    np.random.seed(seed)
+    idx = np.arange(n)
+    np.random.shuffle(idx)
+
+    df_train = df[idx[:n_train]]
+    df_val   = df[idx[n_train : n_train + n_val]]
+    df_test  = df[idx[n_train + n_val :]]
+
+
+    X_train = df_train.drop('isFraud')
+    y_train = df_train['isFraud']
+
+    X_val = df_val.drop('isFraud')
+    y_val = df_val['isFraud']
+
+    return X_train, y_train, X_val, y_val
