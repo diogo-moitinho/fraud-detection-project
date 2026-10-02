@@ -16,6 +16,9 @@ e não de sinal real.
 
 ## Resumo
 
+### LINK STREAMLIT: https://fraud-detection-project-2fbuat3ekkges9bdwqjcnj.streamlit.app/
+
+
 | | Tempo real (deployável) | Forense (pós-liquidação) |
 |---|---|---|
 | PR-AUC (teste) | **0,901** | 0,9995 |
