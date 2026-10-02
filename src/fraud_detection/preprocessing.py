@@ -240,6 +240,7 @@ def criar_features(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
+
 def dividir_cronologicamente(df: pd.DataFrame, seed=42):
     n = len(df)
     n_val = int(n * 0.2)

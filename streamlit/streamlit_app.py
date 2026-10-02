@@ -92,7 +92,7 @@ def mostrar(fig, altura: int = 300) -> None:
                       separators=",.")
     fig.update_yaxes(automargin=True)
     fig.update_xaxes(automargin=True)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 # --------------------------------------------------------------------------- #
@@ -211,6 +211,8 @@ with abas[0]:
                      color="Controle", color_discrete_map={
                          "Regra atual (teto)": VERMELHO, "Todo o resto": "#c9ccd1"})
         fig.update_traces(textinfo="none", sort=False)
+        fig.update_layout(legend=dict(orientation="h", y=-0.08, x=0.5,
+                                      xanchor="center", title=None))
         fig.add_annotation(text=f"<b>{pct(INCUMBENTE_TETO, 2)}</b><br>da fraude",
                            showarrow=False, font=dict(size=20))
         mostrar(fig, 220)
@@ -313,7 +315,7 @@ with abas[2]:
     c[3].metric("Taxa de alerta", pct(ALERTAS / LINHAS_TESTE, 3))
 
     st.caption(
-        f"Mês de teste: steps 356–743 · {num(LINHAS_TESTE)} transações · "
+        f"Período de teste: steps 356–743 ({num(DIAS_TESTE, 1)} dias) · {num(LINHAS_TESTE)} transações · "
         f"{num(FRAUDES_TESTE)} fraudes · prevalência {pct(FRAUDES_TESTE / LINHAS_TESTE, 4)}."
     )
 
@@ -334,7 +336,8 @@ with abas[2]:
                      "Alerta falso": LARANJA})
     fig.update_traces(textposition="inside")
     fig.update_layout(barmode="stack", xaxis_title="transações", yaxis_title=None,
-                      legend_title=None, bargap=0.45)
+                      legend_title=None, bargap=0.45,
+                      legend=dict(orientation="h", y=1.12, x=0))
     mostrar(fig, 250)
 
     c = st.columns(4)
@@ -407,7 +410,7 @@ with abas[3]:
     }
 
     c = st.columns(3)
-    c[0].metric("Perda evitada no mês", moeda(evitada))
+    c[0].metric("Perda evitada no período", moeda(evitada))
     c[1].metric("Custo de revisar os alertas", moeda(operacao))
     c[2].metric("Resultado líquido", moeda(evitada - operacao))
 
@@ -423,7 +426,7 @@ with abas[3]:
                      "Modelo de tempo real": VERDE})
     fig.update_traces(textposition="outside", cliponaxis=False)
     fig.update_layout(showlegend=False, yaxis_title=None,
-                      xaxis_title="prejuízo do mês (R$) — quanto mais perto de zero, melhor")
+                      xaxis_title="prejuízo do período (R$) — quanto mais perto de zero, melhor")
     mostrar(fig, 260)
 
     st.caption(
@@ -433,12 +436,12 @@ with abas[3]:
 
     ganho = prejuizo["Modelo de tempo real"] - prejuizo["Regra atual (teto)"]
     st.markdown(
-        f"Trocar a regra atual pelo modelo muda o resultado do mês em "
+        f"Trocar a regra atual pelo modelo muda o resultado do período em "
         f"**{moeda_md(ganho)}**. Projetado para um ano ao mesmo volume: "
         f"**{moeda_md(ganho * 365 / DIAS_TESTE)}**."
     )
     st.caption(
-        "A projeção multiplica um mês simulado por 22,6, supondo volume e perfil de "
+        "A projeção multiplica o período de teste por 22,6, supondo volume e perfil de "
         "fraude constantes. Ordem de grandeza, não previsão."
     )
 
@@ -454,7 +457,7 @@ with abas[3]:
                   annotation_text="sua premissa", annotation_position="top left")
     fig.add_hline(y=0, line_width=1, line_color="#9aa0a6")
     fig.update_layout(xaxis_title="perda média por fraude (R$)",
-                      yaxis_title="resultado líquido do mês (R$)")
+                      yaxis_title="resultado líquido do período (R$)")
     mostrar(fig, 300)
 
     razao = ALERTAS / VP
@@ -567,7 +570,7 @@ with abas[4]:
 
             st.dataframe(
                 pontuado.sort_values("fraud_probability", ascending=False).head(200),
-                use_container_width=True, hide_index=True)
+                width="stretch", hide_index=True)
             st.download_button("Baixar resultado completo",
                                pontuado.to_csv(index=False).encode("utf-8"),
                                file_name="transacoes_pontuadas.csv", mime="text/csv")

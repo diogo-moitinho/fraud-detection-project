@@ -1,198 +1,288 @@
-# Fraud Detection on Transactional Data
+# Detecção de Fraude em Dados Transacionais
 
-Detecting fraudulent mobile-money transactions in the PaySim dataset — and measuring how
-much of the accuracy usually reported on this dataset comes from data leakage rather than
-from signal.
+Detectando transações fraudulentas de mobile money no dataset PaySim — e medindo quanto
+da acurácia normalmente reportada nesse dataset vem de vazamento de dados (data leakage),
+e não de sinal real.
+
+![Python](https://img.shields.io/badge/Python-3.10-3776AB?logo=python&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-1.7.2-F7931E?logo=scikitlearn&logoColor=white)
+![XGBoost](https://img.shields.io/badge/XGBoost-3.2.0-006400)
+![Optuna](https://img.shields.io/badge/Optuna-TPE-2C5BB4)
+![Streamlit](https://img.shields.io/badge/Streamlit-painel-FF4B4B?logo=streamlit&logoColor=white)
+
+<p align="center">
+  <img src="notebooks/images/streamlit_resultado.png" alt="Painel Streamlit — aba Resultado" width="900">
+</p>
+
+## Resumo
+
+| | Tempo real (deployável) | Forense (pós-liquidação) |
+|---|---|---|
+| PR-AUC (teste) | **0,901** | 0,9995 |
+| Recall | **78,0%** | 98,7% |
+| Precisão | **91,2%** | 99,5% |
+| Taxa de alerta | 0,291% | 0,338% |
+| Fraudes capturadas / perdidas | 3.317 / 933 | 4.195 / 55 |
+| Alertas falsos | 322 | 23 |
+| Ganho de recall sobre a regra vigente | **336×** | — |
+
+Avaliado no período de teste (steps 356–743, 1.248.736 transações, 4.250 fraudes), que o
+modelo nunca viu nem no treino nem na escolha do threshold.
+
+**Custo do vazamento: 0,099 de PR-AUC** — a diferença entre as duas colunas, atribuível
+inteiramente a quatro colunas que não existem no momento da decisão. Na validação cruzada
+a distância é ainda maior: 0,9907 contra 0,6893.
 
 ---
 
-## The problem
+## O problema
 
-A financial institution needs to flag fraudulent transactions **at authorisation time**,
-catching as much fraud as possible while keeping false positives low enough that
-legitimate customers are not blocked.
+Uma instituição financeira precisa sinalizar transações fraudulentas **no momento da
+autorização**, capturando o máximo de fraude possível mantendo os falsos positivos baixos
+o suficiente para não bloquear clientes legítimos.
 
-The incumbent control is a single rule: flag transfers above 200,000. It fires on
-`0.000003` of transactions against a true fraud rate of `0.001291`, so even if every one
-of its flags were correct it could not catch more than **0.23%** of fraud. That is the bar
-to beat, and it is the number the business case should be framed against — not zero.
+O controle vigente é uma única regra: sinalizar transferências acima de 200.000. Ela
+dispara em `0,000003` das transações contra uma taxa real de fraude de `0,001291`, então
+mesmo que todos os seus alertas estivessem corretos ela não conseguiria capturar mais que
+**0,23%** da fraude. Essa é a barra a ser batida, e é o número contra o qual o caso de
+negócio deve ser montado — não contra zero.
 
-## Why this repository is not another PaySim notebook
+## Por que este repositório não é só mais um notebook do PaySim
 
-Most published work on this dataset reports ROC-AUC above 0.99. This project reproduces
-that figure, then shows it is largely an artefact of three modeling errors, and reports
-what remains once they are removed.
+A maioria dos trabalhos publicados sobre esse dataset reporta ROC-AUC acima de 0,99. Este
+projeto reproduz esse número, mostra que ele é em grande parte um artefato de três erros de
+modelagem, e reporta o que sobra depois de removê-los.
 
-**1. Resampling fitted before cross-validation.** SMOTE interpolates between a real
-record and its nearest neighbours. Applied to a dataset before the folds are drawn, a
-synthetic point lands in the validation fold while the record it came from stays in
-training — the model is asked to recognise a linear combination of rows it has memorised.
-Here, resampling is a step inside an `imblearn` pipeline, re-fitted on every fold.
+**1. Reamostragem ajustada antes da validação cruzada.** O SMOTE interpola entre um
+registro real e seus vizinhos mais próximos. Aplicado ao dataset antes de sortear as
+dobras, um ponto sintético cai na dobra de validação enquanto o registro que o originou
+permanece no treino — o modelo é testado em reconhecer uma combinação linear de linhas que
+já memorizou. Aqui, a reamostragem é uma etapa dentro de um pipeline `imblearn`, reajustada
+a cada dobra.
 
-**2. Random splits on sequential data.** `step` maps 743 consecutive hours. A random
-split puts the future in training. It also separates PaySim's paired fraud rows — a
-TRANSFER out of a compromised account followed by a CASH_OUT of the same amount — across
-partitions, leaving the model to match an amount it has already seen. `stratify` does not
-prevent this: it balances the label, not the entity. Here the split is chronological.
+**2. Divisões aleatórias em dado sequencial.** A coluna `step` percorre 743 horas
+consecutivas. Uma divisão aleatória coloca o futuro no treino. Ela também separa os pares
+de fraude do PaySim — uma `TRANSFER` que esvazia uma conta comprometida seguida de um
+`CASH_OUT` do mesmo valor — entre partições diferentes, deixando o modelo reconhecer um
+valor que já viu antes. `stratify` não evita isso: ele equilibra o rótulo, não a entidade.
+Aqui a divisão é cronológica.
 
-**3. Post-settlement features in a real-time problem.** `newbalanceOrig`,
-`newbalanceDest` and the balance-error columns derived from them do not exist when the
-authorisation decision is made. In PaySim a fraudulent agent drains the account, so
-`amount` equals `oldbalanceOrg` and `newbalanceOrig` collapses to zero — meaning
-`errorBalanceOrig` resolves to exactly 0.00 for a large share of frauds. It is not a
-predictor, it is the label wearing a disguise.
+**3. Campos pós-liquidação num problema de tempo real.** `newbalanceOrig`,
+`newbalanceDest` e as colunas de erro de saldo derivadas delas não existem no momento em
+que a decisão de autorização é tomada. No PaySim, um agente fraudador esvazia a conta, então
+`amount` se iguala a `oldbalanceOrg` e `newbalanceOrig` colapsa para zero — o que faz
+`errorBalanceOrig` resolver para exatamente 0,00 numa fatia grande das fraudes. Não é um
+preditor, é o rótulo disfarçado.
 
-The project therefore trains **two models**: a *real-time* model restricted to fields
-available at authorisation, and a *forensic* model that keeps the post-settlement columns
-and is valid only for a post-settlement review queue. The gap between them is reported as
-the measured cost of the leakage.
+O vazamento aparece a olho nu nos gráficos de dispersão da EDA. No segundo e no terceiro
+painéis, as fraudes (em vermelho) formam linhas separadas das legítimas justamente nos
+campos de saldo final:
 
-## Data
+![Dispersões que revelam o vazamento](notebooks/images/dispersao_padroes.png)
+
+Por isso o projeto treina **dois modelos**: um modelo de *tempo real*, restrito aos campos
+disponíveis no momento da autorização, e um modelo *forense*, que mantém as colunas
+pós-liquidação e só é válido para uma fila de revisão pós-liquidação. A diferença entre os
+dois é reportada como o custo medido do vazamento.
+
+## Dados
 
 | | |
 |---|---|
-| Source | [PaySim synthetic mobile money dataset](https://www.kaggle.com/datasets/ealaxi/paysim1) |
-| Rows | 6,362,620 |
-| Fraud rate | 0.1291% (8,213 cases) |
-| Period | 743 simulated hours (~31 days) |
-| Fraud channels | `TRANSFER` and `CASH_OUT` only — `PAYMENT`, `CASH_IN` and `DEBIT` contain zero recorded fraud |
+| Fonte | [PaySim, dataset sintético de mobile money](https://www.kaggle.com/datasets/ealaxi/paysim1) |
+| Linhas | 6.362.620 |
+| Taxa de fraude | 0,1291% (8.213 casos) |
+| Período | 743 horas simuladas (~31 dias) |
+| Canais com fraude | somente `TRANSFER` e `CASH_OUT` — `PAYMENT`, `CASH_IN` e `DEBIT` não têm nenhuma fraude registrada |
 
-The CSV is not versioned. Place it at the path configured in
-`fraud_detection/config.py`.
+![Fraude por tipo de transação](notebooks/images/categorico_type.png)
 
-## Method
+O CSV não é versionado. Baixe-o do Kaggle e coloque-o em `data/Fraud.csv` (caminho
+configurado em `src/fraud_detection/config.py`).
 
-**Partitioning.** Chronological, by `step`, at the 0.80 and 0.80 quantiles weighted by
-row count. Because volume is front-loaded — half of all transactions fall in the first ten
-days — the cut lands near day 13, not day 25.
+## Método
 
-| Partition | Steps | Days | Rows | Frauds | Rate |
+**Particionamento.** Cronológico, por `step`, nos quantis 0,80 e 0,80 ponderados pela
+contagem de linhas. Como o volume é concentrado no início — metade de todas as transações
+cai nos dez primeiros dias — o corte fica perto do dia 13, não do dia 25.
+
+| Partição | Steps | Dias | Linhas | Fraudes | Taxa |
 |---|---|---|---|---|---|
-| TRAIN | 1–301 | 1–13 | 4,104,531 | 3,405 | 0.0830% |
-| VAL | 302–355 | 13–15 | 1,009,353 | 558 | 0.0553% |
-| TEST | 356–743 | 15–31 | 1,248,736 | 4,250 | 0.3403% |
+| TREINO | 1–301 | 1–13 | 4.104.531 | 3.405 | 0,0830% |
+| VALIDAÇÃO | 302–355 | 13–15 | 1.009.353 | 558 | 0,0553% |
+| TESTE | 356–743 | 15–31 | 1.248.736 | 4.250 | 0,3403% |
 
-The test period is **4.1× more hostile** than the training period, and holds 51.7% of all
-fraud in 19.6% of the rows. This is a property of the data, not a sampling defect: the
-model is fitted on the calm part of the month and evaluated on the busy one. Prevalence is
-reported per partition because PR-AUC is a function of base rate.
+O período de teste é **4,1× mais hostil** que o período de treino, e concentra 51,7% de
+toda a fraude em 19,6% das linhas. Isso é uma propriedade do dado, não um defeito de
+amostragem: o modelo é ajustado na parte calma do mês e avaliado na movimentada. A
+prevalência é reportada por partição porque o PR-AUC é função da taxa base.
 
-**Metric.** `average_precision` — area under the Precision-Recall curve. At a 0.13% base
-rate, predicting "not fraud" for everything scores 99.87% accuracy, and ROC-AUC stays
-flattering because the false-positive rate barely moves when negatives outnumber positives
-by three orders of magnitude.
+**Métrica.** `average_precision` — área sob a curva Precisão-Recall. Com uma taxa base de
+0,13%, prever "não é fraude" para tudo dá 99,87% de acurácia, e o ROC-AUC continua
+enganosamente alto porque a taxa de falsos positivos quase não se move quando os negativos
+superam os positivos em três ordens de grandeza.
 
-**Validation.** `TimeSeriesSplit` forward chaining, so every validation fold is strictly
-later than its training folds. Screening and tuning run on a stratified subsample of
-TRAIN that preserves both prevalence and ordering.
+**Validação.** `TimeSeriesSplit` em cadeia progressiva, de forma que toda dobra de
+validação é estritamente posterior às suas dobras de treino. O tuning roda sobre uma
+subamostra estratificada do TREINO (615.680 linhas, 511 fraudes) que preserva prevalência e
+ordem temporal.
 
-**Screening.** Four candidates under identical CV, on the forensic feature set:
+**Tuning.** Optuna TPE, 25 tentativas, um estudo independente por conjunto de features,
+porque hiperparâmetros selecionados na matriz forense de 11 colunas não se transferem bem
+para a matriz de tempo real de 7 colunas. A estratégia de balanceamento de classes — SMOTE
+versus `scale_pos_weight` — é ela mesma um parâmetro ajustado, não uma suposição; nos dois
+estudos venceu `scale_pos_weight`, e é de longe o hiperparâmetro mais importante.
 
-| Model | PR-AUC (CV) | Std | Fit time |
-|---|---|---|---|
-| Logistic Regression | 0.6404 | 0.0434 | 8.1s |
-| Decision Tree | 0.6697 | 0.2649 | 5.9s |
-| Random Forest | **0.9884** | 0.0102 | 79.7s |
-| XGBoost | 0.9693 | 0.0233 | **6.6s** |
+![Convergência e importância dos hiperparâmetros do XGBoost](notebooks/figuras/ajuste_xgboost.png)
 
-Random Forest's lead sits inside XGBoost's own standard deviation, so the two are a
-statistical tie — and XGBoost fits 12× faster, which matters once the number is multiplied
-by trials times folds. The Decision Tree's 0.2649 standard deviation is the more
-interesting result: a single tree memorises whichever fraud burst falls in its training
-window, a failure mode a random split would have hidden entirely.
+**Comparação de modelos.** Três famílias, cada uma com seu próprio estudo do Optuna, sob a
+mesma validação cruzada (PR-AUC médio nas dobras):
 
-**Tuning.** Optuna TPE, one independent study per feature set, because hyperparameters
-selected on the 11-column forensic matrix do not transfer cleanly to the 7-column
-real-time one. The class-balancing strategy — SMOTE versus `scale_pos_weight` — is itself
-a tuned parameter rather than an assumption.
-
-**Threshold.** Selected on the validation partition, never on test, and serialised
-alongside the model. A model saved without its operating point is not usable: whoever
-loads it will call `predict` at 0.5 and get a recall unrelated to the one reported.
-
-## Results
-
-> Populate this section from the output of `02_model.ipynb` after a full
-> `Restart & Run All`. The numbers are generated by `reporting.evaluation_insights`, so
-> they can be copied directly rather than transcribed.
-
-| | Real-time (deployable) | Forensic (post-settlement) |
+| Modelo | Forense | Tempo real |
 |---|---|---|
-| PR-AUC | _TBD_ | _TBD_ |
-| Recall | _TBD_ | _TBD_ |
-| Precision | _TBD_ | _TBD_ |
-| Flag rate | _TBD_ | _TBD_ |
-| Uplift vs. incumbent | _TBD_ | — |
+| XGBoost | 0,9907 | **0,6893** |
+| Random Forest | **0,9938** | 0,6724 |
+| Regressão Logística | 0,6336 | 0,1403 |
 
-**Cost of leakage:** _TBD_ PR-AUC — the difference between the two columns, attributable
-entirely to four columns that do not exist at decision time.
+Random Forest e XGBoost empatam na prática; o XGBoost foi o escolhido por liderar no
+conjunto de tempo real — o único que pode ir para produção — e por ajustar bem mais rápido.
+A regressão logística desaba no tempo real: sem os saldos finais, a fronteira de decisão
+deixa de ser aproximadamente linear.
 
-## Repository structure
+**Threshold.** Selecionado na partição de validação, nunca no teste, e serializado junto
+com o modelo (`0,9544` no de tempo real). Um modelo salvo sem seu ponto de operação não é
+utilizável: quem o carregar vai chamar `predict` em 0,5 e obter um recall sem relação com o
+reportado.
+
+## Resultados
+
+Os números da tabela do [Resumo](#resumo) saem de `mdl.evaluate_feature_sets` em
+`02_model.ipynb`. O que o modelo de tempo real aprendeu:
+
+![Importância das variáveis — modelo de tempo real](notebooks/images/importancia_tempo_real.png)
+
+O tipo de transação domina: `CASH_IN` e `PAYMENT` têm alto ganho porque permitem descartar
+de imediato canais onde a fraude nunca acontece. Destinatário comerciante cumpre papel
+parecido. Entre as variáveis contínuas, o saldo da origem antes da transação e o valor
+carregam o sinal do padrão "esvaziar a conta" — sem precisar do saldo final.
+
+## Painel Streamlit
+
+[streamlit/streamlit_app.py](streamlit/streamlit_app.py) é um painel interativo construído
+sobre o artefato `notebooks/models/fraud_realtime_v1.joblib` — nada é retreinado nele.
+
+| Aba | Conteúdo |
+|---|---|
+| O problema | volume, taxa de fraude e o teto aritmético do controle vigente |
+| Método | os três vazamentos corrigidos, a partição cronológica, a escolha do modelo |
+| Resultado | PR-AUC, recall e precisão do teste, para onde foram fraudes e alertas |
+| Impacto financeiro | simulador com premissas de custo ajustáveis pelo usuário |
+| Testar o modelo | pontua um cenário manual ou um CSV carregado, com gauge de probabilidade |
+| Limitações | as mesmas ressalvas deste README, em formato de painel |
+
+<table>
+  <tr>
+    <td><img src="notebooks/images/streamlit_problema.png" alt="Aba O problema"></td>
+    <td><img src="notebooks/images/streamlit_metodo.png" alt="Aba Método"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>O problema</b></td>
+    <td align="center"><b>Método</b></td>
+  </tr>
+  <tr>
+    <td><img src="notebooks/images/streamlit_impacto.png" alt="Aba Impacto financeiro"></td>
+    <td><img src="notebooks/images/streamlit_teste.png" alt="Aba Testar o modelo"></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Impacto financeiro</b></td>
+    <td align="center"><b>Testar o modelo</b></td>
+  </tr>
+</table>
+
+Para rodar:
+
+```bash
+pip install -r requirements.txt
+streamlit run streamlit/streamlit_app.py
+```
+
+O app sobe a árvore de diretórios a partir de `streamlit_app.py` até achar o `.joblib`, então
+funciona rodado de qualquer lugar dentro do repositório. Suas dependências são as mínimas
+para servir o artefato — ver os comentários em `requirements.txt` sobre por que `polars`,
+`optuna` e `seaborn` (usados só nos notebooks) ficam de fora. `scikit-learn` e `xgboost`
+estão fixados nas versões com que o artefato foi salvo.
+
+## Estrutura do repositório
 
 ```
 .
-├── 01_eda.ipynb                 phases 1–4: business framing, data understanding, EDA
-├── 02_model.ipynb               phases 5–9: preprocessing, tuning, evaluation, deploy
-├── fraud_detection/
-│   ├── config.py                paths, seed, split geometry, feature contracts
-│   ├── preprocessing.py         loading, row-wise engineering, splits, pipelines
-│   ├── model.py                 CV, screening, Optuna, evaluation, importances
-│   ├── reporting.py             modeling-stage plots and generated narrative
-│   ├── deployment.py            artifact persistence and the scoring entry point
-│   ├── visualizer.py            EDA panels
-│   └── statistical_test.py      hypothesis tests
-├── models/                      serialised artifacts (gitignored)
-└── data/                        raw CSV (gitignored)
+├── notebooks/
+│   ├── 01_eda.ipynb            fases 1–4: definição do problema, entendimento dos dados, EDA
+│   ├── 02_model.ipynb          fases 5–9: pré-processamento, tuning, avaliação, deploy
+│   ├── models/                  artefato serializado do modelo de tempo real
+│   ├── images/                  gráficos exportados e capturas do painel
+│   └── figuras/                 gráficos do tuning
+├── src/fraud_detection/
+│   ├── config.py                caminhos, seed, geometria dos splits, contratos de features
+│   ├── preprocessing.py         carga, engenharia de features, splits, pipelines
+│   ├── model.py                 CV, Optuna, avaliação, importâncias
+│   ├── reporting.py             gráficos da etapa de modelagem e narrativa gerada
+│   ├── deployment.py            persistência de artefato e ponto de entrada de scoring
+│   ├── visualizer.py            painéis da EDA e exportação de figuras
+├── streamlit/
+│   └── streamlit_app.py         painel interativo sobre o artefato de tempo real
+└── data/                        CSV bruto (gitignored)
 ```
 
-The notebooks contain **no function definitions**. Every reusable behaviour lives in the
-package, so the notebooks read as narrative and the logic is testable, diffable and
-importable outside Jupyter.
+Os notebooks **não contêm definições de função**. Todo comportamento reutilizável vive no
+pacote, então os notebooks funcionam como narrativa e a lógica fica testável, diffável e
+importável fora do Jupyter.
 
-Insight prose in `02_model.ipynb` is generated from live objects via
-`reporting.show(...)` rather than typed by hand, and renders as markdown in the cell
-output. Change a search bound and the narrative changes with it — hardcoded figures in a
-notebook silently become false the moment a parameter moves.
+Os gráficos são exportados com `visualizer.salvar_figura` (ou `rpt.salvar_figura`) antes do
+`plt.show()`, e as funções de painel aceitam `salvar=True`. As imagens caem em
+`notebooks/images/` (`config.IMAGES_DIR`) e são as mesmas referenciadas neste README.
 
-## Reproducing
+## Reproduzindo
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+pip install polars optuna seaborn ipywidgets jupyterlab
+pip install -e .                 # instala o pacote fraud_detection a partir de src/
 
-# place Fraud.csv where config.DATA_PATH points, then:
+# coloque o Fraud.csv em data/, então:
 jupyter lab
 ```
 
-Run `01_eda.ipynb` end to end, then `02_model.ipynb`. Budget roughly 20 minutes for the
-modeling notebook; the two Optuna studies account for most of it. Both notebooks are
-committed without outputs — `Restart & Run All` is the intended entry point.
+Rode `01_eda.ipynb` do início ao fim, depois `02_model.ipynb`. Reserve tempo para o
+notebook de modelagem: os estudos do Optuna (XGBoost, Random Forest e Regressão Logística,
+nos dois conjuntos de features) são a maior parte dele. `Restart & Run All` é o ponto de
+entrada pretendido, e regrava o artefato usado pelo painel.
 
-Core dependencies: `polars`, `pandas`, `scikit-learn`, `imbalanced-learn`, `xgboost`,
-`optuna`, `matplotlib`, `seaborn`, `plotly`, `joblib`, `ipywidgets`. Python 3.10.
+## Limitações
 
-## Limitations
+- **Dado sintético.** Os agentes de fraude do PaySim seguem regras programadas, aprendíveis
+  de um jeito que adversários reais não são. Toda métrica aqui é um limite superior do
+  desempenho no mundo real.
+- **Sem deriva adversarial.** Validado em um mês de uma simulação estática. Padrões reais de
+  fraude mudam em resposta à detecção, então o desempenho em produção decai sem retreino.
+- **Escopo de transação única.** Cada transação é pontuada isoladamente. O modelo não
+  enxerga que uma conta recebeu três transferências nos dez minutos anteriores, que é como
+  quadrilhas de fraude de fato aparecem. Agregados de velocidade por conta sobre uma janela
+  móvel de `step` são a extensão de maior valor disponível, e a razão pela qual a busca de
+  hiperparâmetros estabiliza cedo — a restrição é o conjunto de features, não o modelo.
+- **Suposição de custo simétrico.** O threshold padrão maximiza F1, o que precifica um
+  cliente legítimo bloqueado e uma fraude perdida como se fossem a mesma coisa. Não são.
+  `model.threshold_for_cost_ratio` aceita uma razão explícita assim que o negócio fornecer
+  uma.
 
-- **Synthetic data.** PaySim's fraud agents follow programmed rules, learnable in a way
-  real adversaries are not. Every figure here is an upper bound on real-world performance.
-- **No adversarial drift.** Validated on one month of a static simulation. Real fraud
-  patterns shift in response to detection, so production performance decays without
-  retraining.
-- **Single-transaction scope.** Each transaction is scored in isolation. The model cannot
-  see that an account received three transfers in the previous ten minutes, which is how
-  fraud rings actually appear. Per-account velocity features over a trailing `step` window
-  are the highest-value extension available and the reason the hyperparameter search
-  plateaus early — the constraint is the feature set, not the model.
-- **Symmetric cost assumption.** The default threshold maximises F1, which prices a
-  blocked legitimate customer and a missed fraud identically. They are not identical.
-  `model.threshold_for_cost_ratio` accepts an explicit ratio once the business supplies
-  one.
+## Próximos passos
 
-## Next steps
-
-1. Per-account velocity aggregates over a trailing `step` window, computed strictly from
-   past rows to preserve causal ordering.
-2. Re-derive the operating point against explicit false-positive and false-negative costs.
-3. Monitoring baseline on prediction distribution and flag rate, so drift is caught before
-   recall degrades silently.
-4. Validation against real transactional data before any production consideration.
+1. Agregados de velocidade por conta sobre uma janela móvel de `step`, computados
+   estritamente a partir de linhas passadas para preservar a ordem causal.
+2. Rederivar o ponto de operação contra custos explícitos de falso positivo e falso
+   negativo.
+3. Linha de base de monitoramento sobre a distribuição das predições e a taxa de alerta,
+   para capturar deriva antes que o recall degrade silenciosamente.
+4. Validação contra dado transacional real antes de qualquer consideração de produção.
+5. Salvar também o artefato forense, para o painel exibir o custo do vazamento lado a lado.

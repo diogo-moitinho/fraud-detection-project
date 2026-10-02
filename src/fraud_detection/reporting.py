@@ -19,6 +19,7 @@ import pandas as pd
 
 from . import config as cfg
 from . import model as mdl
+from .visualizer import salvar_figura  # noqa: F401 — reexportado para rpt.salvar_figura(...)
 
 
 def show(markdown: str) -> None:
@@ -42,17 +43,22 @@ def _despine(ax, sides=('top', 'right')) -> None:
 # --------------------------------------------------------------------------- #
 # Plots
 # --------------------------------------------------------------------------- #
-def plot_screening(df_results: pd.DataFrame, ax=None):
+def plot_screening(df_results: pd.DataFrame, ax=None, salvar: bool = False, pasta=None):
     """Horizontal PR-AUC comparison with fold-variance error bars.
 
     The error bars are not decoration. At this prevalence the spread across folds
     is often wider than the gap between models, and overlapping intervals mean a
     tie rather than a ranking.
+
+    salvar: if True, export the figure as PNG (see `visualizer.salvar_figura`)
+    before returning. Only takes effect when ``ax`` is not supplied, since
+    otherwise the figure belongs to the caller.
     """
     data = df_results.sort_values('PR-AUC (CV)')
 
+    fig = None
     if ax is None:
-        _, ax = plt.subplots(figsize=(10, 5))
+        fig, ax = plt.subplots(figsize=(10, 5))
 
     ax.barh(data.index, data['PR-AUC (CV)'],
             xerr=data['Std'], color=cfg.COLOR_PRIMARY,
@@ -69,14 +75,20 @@ def plot_screening(df_results: pd.DataFrame, ax=None):
                 fontsize=10, color='#333333')
 
     plt.tight_layout()
+    if salvar and fig is not None:
+        salvar_figura('screening', fig=fig, pasta=pasta)
     return ax
 
 
-def plot_tuning(studies: dict[str, optuna.Study], print_importance: bool = True):
+def plot_tuning(studies: dict[str, optuna.Study], print_importance: bool = True,
+                salvar: bool = False, pasta=None):
     """Convergence trace and hyperparameter importance, one row per study.
 
     Importances are also printed so the narrative can cite verified values
     instead of numbers read off a chart by eye.
+
+    salvar: if True, export the figure as PNG (see `visualizer.salvar_figura`)
+    before returning.
     """
     n = len(studies)
     fig, axes = plt.subplots(n, 2, figsize=(14, 4.5 * n), squeeze=False)
@@ -117,13 +129,23 @@ def plot_tuning(studies: dict[str, optuna.Study], print_importance: bool = True)
         _despine(ax)
 
     plt.tight_layout()
+    if salvar:
+        salvar_figura('tuning', fig=fig, pasta=pasta)
     return fig
 
 
-def plot_importance(importance: pd.Series, title: str = 'Feature importance (gain)', ax=None):
-    """Horizontal gain chart for one fitted pipeline."""
+def plot_importance(importance: pd.Series, title: str = 'Feature importance (gain)', ax=None,
+                    salvar: bool = False, pasta=None, nome: str = 'importancia'):
+    """Horizontal gain chart for one fitted pipeline.
+
+    salvar: if True, export the figure as PNG (see `visualizer.salvar_figura`)
+    before returning. Only takes effect when ``ax`` is not supplied. ``nome``
+    sets the filename, useful when calling this twice (e.g. realtime vs.
+    forensic feature sets).
+    """
+    fig = None
     if ax is None:
-        _, ax = plt.subplots(figsize=(9, 5))
+        fig, ax = plt.subplots(figsize=(9, 5))
 
     data = importance.sort_values()
     ax.barh(data.index, data.values, color=cfg.COLOR_PRIMARY)
@@ -134,6 +156,8 @@ def plot_importance(importance: pd.Series, title: str = 'Feature importance (gai
     _despine(ax, ('top', 'right', 'left'))
 
     plt.tight_layout()
+    if salvar and fig is not None:
+        salvar_figura(nome, fig=fig, pasta=pasta)
     return ax
 
 

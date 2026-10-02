@@ -12,6 +12,7 @@ from __future__ import annotations
 DATA_PATH = '/data/PROJETOS/GIT/ALURA-FRAUDE/data/Fraud.csv'
 MODEL_DIR = 'models'
 ARTIFACT_NAME = 'fraud_realtime_v1.joblib'
+IMAGES_DIR = 'images'   # gráficos exportados via visualizer.salvar_figura, para o README
 
 RANDOM_STATE = 42
 

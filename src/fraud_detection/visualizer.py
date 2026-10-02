@@ -4,6 +4,7 @@ Otimizado para bases grandes e para uma análise exploratória visual e objetiva
 """
 from __future__ import annotations
 
+import os
 import random
 
 import matplotlib.pyplot as plt
@@ -14,6 +15,8 @@ from scipy import stats
 
 from matplotlib.ticker import FuncFormatter
 
+from . import config as cfg
+
 
 sns.set_theme(style="whitegrid", palette="muted")
 
@@ -23,6 +26,19 @@ _MAX_PONTOS_QQ = 50_000
 # ---------------------------------------------------------------------------
 # Funções auxiliares
 # ---------------------------------------------------------------------------
+
+def salvar_figura(nome: str, fig=None, pasta: str | None = None, dpi: int = 150) -> str:
+    """Salva a figura atual (ou `fig`) como PNG, criando a pasta se preciso.
+
+    Chame antes de `plt.show()` — depois de mostrada, o Jupyter pode descartar a
+    figura da memória. Pensado para gerar imagens prontas para usar no README.
+    """
+    fig = plt.gcf() if fig is None else fig
+    pasta = cfg.IMAGES_DIR if pasta is None else pasta
+    os.makedirs(pasta, exist_ok=True)
+    caminho = os.path.join(pasta, f"{nome}.png")
+    fig.savefig(caminho, dpi=dpi, bbox_inches="tight")
+    return caminho
 
 def _obter_cor_aleatoria() -> str:
     """Retorna uma cor hexadecimal aleatória de uma paleta profissional padrão."""
@@ -312,11 +328,12 @@ def plotar_qq_normalidade(df: pd.DataFrame, variavel: str, ax=None):
     return ax
 
 
-def plotar_heatmaps_correlacao(df, incluir=(), top_n=10, excluir=()):
+def plotar_heatmaps_correlacao(df, incluir=(), top_n=10, excluir=(), salvar=False, pasta=None):
     """
     Mapas de calor de Pearson e Spearman (um embaixo do outro) e os pares mais correlacionados.
     Mostra só o triângulo de baixo: o de cima é espelho e a diagonal é sempre 1.
     excluir: colunas que não fazem sentido correlacionar (ex.: ["ID"]).
+    salvar: se True, exporta a figura como PNG (ver `salvar_figura`) antes de mostrá-la.
     """
     numerico = _converter_para_numerico(df.drop(columns=list(excluir)), incluir=incluir)
     if numerico.shape[1] < 2:
@@ -345,6 +362,8 @@ def plotar_heatmaps_correlacao(df, incluir=(), top_n=10, excluir=()):
 
     fig.suptitle("Análise de correlação entre variáveis", fontsize=16, fontweight="bold")
     plt.tight_layout(rect=(0, 0, 1, 0.98))  # espaço para o título geral
+    if salvar:
+        salvar_figura("correlacao", fig=fig, pasta=pasta)
     plt.show()
 
     mascara = np.tril(np.ones(corr_pearson.shape), k=-1).astype(bool)
@@ -425,8 +444,12 @@ def plotar_scatter(df, x, y, hue=None, ax=None, max_pontos=50_000, escala="linea
     return ax
 
 
-def gerar_painel_quantitativo(df: pd.DataFrame, variaveis, hue=None, mapa_cores=None):
-    """Gera o painel completo (Z-Score, Distribuição, Boxplot, QQ-Plot) para variáveis numéricas."""
+def gerar_painel_quantitativo(df: pd.DataFrame, variaveis, hue=None, mapa_cores=None,
+                              salvar=False, pasta=None):
+    """Gera o painel completo (Z-Score, Distribuição, Boxplot, QQ-Plot) para variáveis numéricas.
+
+    salvar: se True, exporta cada painel como PNG (ver `salvar_figura`) antes de mostrá-lo.
+    """
     if isinstance(variaveis, str):
         variaveis = [variaveis]
 
@@ -452,6 +475,9 @@ def gerar_painel_quantitativo(df: pd.DataFrame, variaveis, hue=None, mapa_cores=
 
         fig.text(0.80, 0.5, texto_resumo, fontsize=11, family="monospace", va="center",
                  bbox=dict(boxstyle="round,pad=1", facecolor="white", edgecolor="black", linewidth=1.5))
+
+        if salvar:
+            salvar_figura(f"quantitativo_{variavel}", fig=fig, pasta=pasta)
 
         plt.show()
 
@@ -645,8 +671,12 @@ def plotar_barras_frequencia_variavel(df: pd.DataFrame, variavel: str, ax=None, 
     return ax
 
 
-def gerar_painel_categorico(df: pd.DataFrame, variaveis, alvo=None, mapa_cores=None):
-    """Gera o painel completo para variáveis categóricas, opcionalmente cruzando com um alvo."""
+def gerar_painel_categorico(df: pd.DataFrame, variaveis, alvo=None, mapa_cores=None,
+                            salvar=False, pasta=None):
+    """Gera o painel completo para variáveis categóricas, opcionalmente cruzando com um alvo.
+
+    salvar: se True, exporta cada painel como PNG (ver `salvar_figura`) antes de mostrá-lo.
+    """
     if isinstance(variaveis, str):
         variaveis = [variaveis]
 
@@ -689,5 +719,8 @@ def gerar_painel_categorico(df: pd.DataFrame, variaveis, alvo=None, mapa_cores=N
         # Caixa de texto padronizada
         fig.text(posicao_texto, 0.5, texto_resumo, fontsize=11, family="monospace", va="center",
                  bbox=dict(boxstyle="round,pad=1", facecolor="white", edgecolor="black", linewidth=1.5))
+
+        if salvar:
+            salvar_figura(f"categorico_{variavel}", fig=fig, pasta=pasta)
 
         plt.show()
